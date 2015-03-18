@@ -27,7 +27,7 @@
 
 (defn add-acker-id [event m]
   (let [peers (get-in @(:onyx.core/replica event) [:ackers (:onyx.core/job-id event)])
-        n (mod (.hashCode (:message m)) (count peers))]
+        n (mod (hash (:message m)) (count peers))]
     (assoc m :acker-id (nth peers n))))
 
 (defn add-completion-id [event m]
@@ -49,13 +49,13 @@
 (defn fuse-ack-vals [task parent-ack child-ack]
   (if (= (:onyx/type task) :output)
     parent-ack
-    (acker/prefuse-vals parent-ack child-ack)))
+    (acker/prefuse-vals (vector parent-ack child-ack))))
 
 (defn ack-messages [{:keys [onyx.core/acking-daemon onyx.core/children] :as event}]
   (merge
    event
    (when (and children (not (:onyx/side-effects-only? (:onyx.core/task-map event))))
-     (doseq [raw-segment (keys children)]
+     (doseq [[raw-segment tagged] children]
        (when (:ack-val raw-segment)
          (let [link (operation/peer-link event (:acker-id raw-segment) :acker-peer-site)]
            (extensions/internal-ack-message
@@ -64,7 +64,7 @@
             link
             (:id raw-segment)
             (:completion-id raw-segment)
-            (fuse-ack-vals (:onyx.core/task-map event) (:ack-val raw-segment) (get children raw-segment)))))))))
+            (fuse-ack-vals (:onyx.core/task-map event) (:ack-val raw-segment) tagged))))))))
 
 (defn join-output-paths [all to-add downstream]
   (cond (= to-add :all) (into #{} downstream)
@@ -145,7 +145,7 @@
 (defn strip-sentinel [{:keys [onyx.core/batch onyx.core/decompressed] :as event}]
   (merge
    event
-   (when-let [k (.indexOf (map :message decompressed) :done)]
+   (when-let [k (.indexOf ^clojure.lang.LazySeq (map :message decompressed) :done)]
      {:onyx.core/batch (drop-nth k batch)
       :onyx.core/decompressed (drop-nth k decompressed)})))
 
@@ -164,19 +164,21 @@
   (let [segments (p-ext/apply-fn event input)]
     (if (sequential? segments) segments (vector segments))))
 
+
 (defn apply-fn-single [{:keys [onyx.core/batch onyx.core/decompressed] :as event}]
+  ; PERF: Tight inner loop where a lot of time is spent 
   (merge
    event
    (reduce
     (fn [rets thawed]
       (let [segments (collect-next-segments event (:message thawed))
             results (map (partial build-next-segment thawed) segments)
-            tagged (apply acker/prefuse-vals (map :ack-val results))]
+            tagged (acker/prefuse-vals (map :ack-val results))]
         (-> rets
-            (update-in [:onyx.core/results] concat results)
-            (assoc-in [:onyx.core/children thawed] tagged))))
+            (update-in [:onyx.core/results] into results)
+            (update-in [:onyx.core/children] conj [thawed tagged]))))
     {:onyx.core/results []
-     :onyx.core/children {}}
+     :onyx.core/children []}
     decompressed)))
 
 (defn apply-fn-batch [{:keys [onyx.core/batch onyx.core/decompressed] :as event}]
@@ -294,7 +296,7 @@
                            :onyx.core/compiled-ex-fcs (compile-fc-exs flow-conditions (:name task))
                            :onyx.core/task-map catalog-entry
                            :onyx.core/serialized-task task
-                           :onyx.core/params (resolve-calling-params catalog-entry  opts)
+                           :onyx.core/params (resolve-calling-params catalog-entry opts)
                            :onyx.core/drained-back-off (or (:onyx.peer/drained-back-off opts) 400)
                            :onyx.core/log log
                            :onyx.core/messenger-buffer messenger-buffer

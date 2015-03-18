@@ -7,7 +7,7 @@
               [onyx.peer.pipeline-extensions :as p-ext]
               [onyx.peer.operation :as operation]
               [onyx.extensions :as extensions]
-              [taoensso.timbre :refer [debug]]
+              [taoensso.timbre :as timbre :refer [debug]]
               [dire.core :refer [with-post-hook!]])
     (:import [java.util UUID]
              [java.security MessageDigest]))
@@ -67,13 +67,13 @@
                   scattered (get grouped nil)
                   scattered-target (rand-nth active-peers)
                   scattered-link (operation/peer-link event scattered-target :send-peer-site)]
-              (onyx.extensions/send-messages messenger event scattered-link (compress (map :segment scattered)))
+              (onyx.extensions/send-messages messenger event scattered-link (map :segment scattered))
 
               (doseq [k (filter identity (keys grouped))]
                 (let [messages (get grouped k)
                       target (nth active-peers (mod (.hashCode k) (count active-peers)))
                       target-link (operation/peer-link event target :send-peer-site)]
-                  (onyx.extensions/send-messages messenger event target-link (compress (map :segment messages)))))))))
+                  (onyx.extensions/send-messages messenger event target-link (map :segment messages))))))))
       {})
     {}))
 
