@@ -308,9 +308,7 @@
                            :onyx.core/state (atom {})}
 
             ex-f (fn [e] (handle-exception e restart-ch outbox-ch job-id))
-            pipeline-data (merge pipeline-data (l-ext/inject-lifecycle-resources* pipeline-data))
-            calling-params (resolve-calling-params (merge pipeline-data catalog-entry) opts)
-            pipeline-data (if calling-params (assoc pipeline-data :onyx.core/params calling-params) pipeline-data)]
+            pipeline-data (merge pipeline-data (l-ext/inject-lifecycle-resources* pipeline-data))]
 
         (while (and (first (alts!! [kill-ch] :default true))
                     (not (:onyx.core/start-lifecycle? (munge-start-lifecycle pipeline-data))))
